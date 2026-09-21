@@ -19,7 +19,8 @@ demo:
 	@echo "⚠️  demo ainda não implementado — disponível no módulo 01"
 
 eval:
-	@echo "⚠️  eval ainda não implementado — disponível no módulo 02"
+	uv run python evals/build_tests.py
+	set -a && . infra/.env && set +a && OPENAI_API_KEY="$$GATEWAY_API_KEY" npx promptfoo@latest eval -c evals/promptfooconfig.yaml
 
 custo:
 	@echo "⚠️  custo ainda não implementado — disponível após o LiteLLM entrar"

@@ -37,7 +37,7 @@ class Pergunta(BaseModel):
 
 @app.post("/ask")
 async def ask(body: Pergunta):
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         resposta = await client.post(
             url=f"{GATEWAY_URL}/chat/completions",
             headers={"Authorization": f"Bearer {GATEWAY_API_KEY}"},

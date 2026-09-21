@@ -1,0 +1,46 @@
+name: eval
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir LiteLLM (infra mínima — só o gateway, sem Ollama/Postgres/Langfuse)
+        working-directory: infra
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
+        run: docker compose -f docker-compose.ci.yml up -d --wait
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Instalar dependências Python
+        run: uv sync
+
+      - name: Subir a app em background
+        env:
+          GATEWAY_URL: http://localhost:4000
+          GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
+          OTEL_ENDPOINT: http://localhost:4318
+        run: |
+          uv run uvicorn app.main:app --port 8000 &
+          for i in $(seq 1 15); do
+            curl -sf -X POST http://localhost:8000/ask \
+              -H "Content-Type: application/json" \
+              -d '{"pergunta":"oi"}' > /dev/null && break
+            sleep 1
+          done
+
+      - name: Rodar eval (promptfoo contra o golden set)
+        env:
+          GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
+        run: |
+          uv run python evals/build_tests.py
+          npx promptfoo@latest eval -c evals/promptfooconfig.yaml
