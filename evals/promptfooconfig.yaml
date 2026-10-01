@@ -1,0 +1,37 @@
+description: "Módulo 02 — regressão de prompt do /ask, contra o golden set"
+
+prompts:
+  - "{{pergunta}}"
+
+providers:
+  - id: http
+    label: poc-agent-ask
+    config:
+      url: http://localhost:8000/ask
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        pergunta: "{{prompt}}"
+      transformResponse: "json.choices[0].message.content"
+
+defaultTest:
+  assert:
+    - type: llm-rubric
+      provider:
+        id: openai:chat:chat-default
+        config:
+          apiBaseUrl: http://localhost:4000
+      value: |
+        Compare a RESPOSTA do modelo com o GABARITO abaixo, sobre a mesma
+        pergunta de documentação técnica (dbt, Spark ou Airflow).
+
+        GABARITO:
+        {{gabarito}}
+
+        Critério: PASS se a resposta cobre os fatos principais do gabarito
+        sem contradizer nenhum deles. FAIL se contradiz algum fato do
+        gabarito, ou omite um conceito central da resposta. Diferenças de
+        forma, ordem ou palavras não importam — só correção factual.
+
+tests: tests.generated.yaml

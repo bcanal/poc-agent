@@ -1,0 +1,118 @@
+# golden_set.yaml — casos de avaliação do módulo 02
+#
+# Cada caso tem pergunta + gabarito + fonte. Gabaritos verificados por
+# humano, baseados em docs/respostas.md (que por sua vez cita a
+# documentação oficial de cada fonte).
+#
+# Hoje o /ask não faz retrieval (isso só entra no módulo 03) — estes casos
+# testam o modelo respondendo do próprio conhecimento de treino, não RAG.
+
+- id: dbt-001
+  pergunta: "O que é um modelo incremental no dbt, e por que usar em vez de uma table completa?"
+  gabarito: >
+    Um modelo incremental é uma estratégia de materialização que atualiza a
+    tabela no warehouse transformando e carregando apenas os dados novos ou
+    alterados desde a última execução, em vez de reprocessar o dataset
+    inteiro. Na primeira execução, constrói a tabela com todas as linhas da
+    origem; nas execuções seguintes, transforma só as linhas indicadas —
+    normalmente filtradas via macro `is_incremental()` — e as insere/mescla
+    na tabela existente. É preferível ao `materialized='table'` quando a
+    origem tem milhões/bilhões de linhas ou as transformações são lentas,
+    já que `table` reconstrói tudo a cada run. Duas ressalvas importantes:
+    exige configuração extra (uso avançado do dbt) e modelos incrementais
+    são stateful — o lugar mais fácil de quebrar idempotência.
+  fonte:
+    - "https://docs.getdbt.com/docs/build/incremental-models-overview"
+    - "https://docs.getdbt.com/docs/build/incremental-models"
+
+- id: dbt-002
+  pergunta: "O que é um seed no dbt e quando devo usar um?"
+  gabarito: >
+    Seeds são arquivos CSV dentro do projeto dbt (tipicamente na pasta
+    `seeds/`) que o dbt carrega no warehouse via `dbt seed`, e podem ser
+    referenciados em modelos downstream via `ref()`, como um modelo comum.
+    Por estarem no repositório, são versionados e passíveis de code review
+    — por isso indicados para dados estáticos que mudam raramente:
+    mapeamento de código de país para nome, lista de e-mails de teste a
+    excluir de análises, lista de IDs de contas de funcionários. Não são
+    indicados para dados brutos exportados nem dados de produção sensíveis
+    (PII, senhas). A documentação reforça que carregar CSVs grandes via
+    seed não é performático — para isso, usar uma ferramenta de ingestão
+    apropriada.
+  fonte: "https://docs.getdbt.com/docs/build/seeds"
+
+- id: spark-001
+  pergunta: "O que é uma operação de shuffle no Spark e por que ela é custosa?"
+  gabarito: >
+    Valores de uma mesma chave não necessariamente estão na mesma partição
+    ou máquina, mas precisam estar co-localizados para o cálculo (ex:
+    `reduceByKey`). Como cada task opera sobre uma única partição, o Spark
+    precisa executar uma operação all-to-all: ler todas as partições,
+    encontrar os valores de todas as chaves e reuni-los para computar o
+    resultado — isso é o shuffle. É custoso por três frentes: I/O de disco
+    (spill para disco quando as estruturas em memória não cabem, com
+    pressão de garbage collection e geração de arquivos intermediários),
+    serialização (dados precisam ser serializados para trafegar entre
+    executors) e I/O de rede (dados atravessam o cluster). Entre as
+    operações que tipicamente disparam shuffle estão `repartition`,
+    operações `*ByKey` — exceto contagem — como `groupByKey` e
+    `reduceByKey`, e joins como `cogroup` e `join`. `coalesce` aparece na
+    mesma categoria geral, mas por padrão evita o shuffle completo ao
+    reduzir partições (ver próximo caso).
+  fonte: "https://spark.apache.org/docs/latest/rdd-programming-guide.html"
+
+- id: spark-002
+  pergunta: "Qual a diferença entre repartition e coalesce no Spark?"
+  gabarito: >
+    A diferença central é o tipo de dependência criada. `coalesce` gera
+    dependência estreita (narrow): só reduz o número de partições (nunca
+    aumenta) e, por padrão, funde partições locais sem shuffle completo —
+    ex: ao ir de 1000 para 100 partições, cada nova partição "reivindica"
+    10 das atuais, podendo resultar em distribuição desbalanceada.
+    `repartition` gera dependência ampla (wide): sempre faz shuffle
+    completo, redistribuindo os dados uniformemente, podendo aumentar ou
+    diminuir o número de partições. Na API RDD, `coalesce` aceita um
+    parâmetro `shuffle` (padrão `False`); `repartition` é, na prática,
+    `coalesce(n, shuffle=True)`. Armadilha documentada: um `coalesce`
+    drástico (ex: para 1 partição) pode fazer a computação rodar em menos
+    nós do que o desejado — para evitar isso, usa-se `repartition`, que
+    paga o custo do shuffle mas mantém as partições upstream em paralelo.
+    Regra prática: reduzir partições após um filtro → `coalesce`; aumentar
+    paralelismo ou corrigir skew → `repartition`.
+  fonte:
+    - "https://spark.apache.org/docs/latest/api/R/reference/coalesce.html"
+    - "https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.RDD.coalesce"
+
+- id: airflow-001
+  pergunta: "O que é um DAG no Apache Airflow?"
+  gabarito: >
+    Um Dag é um modelo que encapsula tudo que é necessário para executar um
+    workflow: schedule (quando roda), tasks (unidades discretas de trabalho
+    executadas nos workers), dependências entre tasks (ordem e condições de
+    execução), callbacks (ações ao término do workflow) e parâmetros
+    adicionais (retries, timeouts, e outros detalhes operacionais). O Dag
+    não se importa com o que acontece dentro das tasks, só com como
+    executá-las. O termo vem do conceito matemático de directed acyclic
+    graph, mas o significado no Airflow evoluiu além da estrutura de dados
+    literal — por isso a documentação atual usa a grafia "Dag". Pode ser
+    declarado de três formas: context manager, construtor padrão, ou
+    decorator (`@dag`).
+  fonte: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html"
+
+- id: airflow-002
+  pergunta: "O que é um Sensor no Apache Airflow e para que serve?"
+  gabarito: >
+    Sensores são um tipo especial de Operator projetado para fazer uma
+    coisa: esperar algo acontecer — tempo, um arquivo, ou um evento
+    externo. Quando a condição ocorre, o sensor sucede e libera as tasks
+    downstream; se não ocorrer dentro do timeout configurado, falha e
+    aciona os mecanismos usuais de alerta. Tem dois modos de execução:
+    `poke` (padrão, ocupa um slot de worker durante todo o runtime — para
+    checagens frequentes) e `reschedule` (ocupa o slot só durante a
+    checagem, dorme entre elas — para checagens espaçadas). Parâmetros
+    comuns do `BaseSensorOperator`: `poke_interval`, `timeout`, `mode`,
+    `soft_fail`, `exponential_backoff`, `max_wait`. Sensores prontos
+    incluem `FileSensor`, `BashSensor`, `PythonSensor`, `TimeSensor`,
+    `TimeDeltaSensor` e `ExternalTaskSensor` (espera uma task de outro
+    Dag).
+  fonte: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/sensors.html"

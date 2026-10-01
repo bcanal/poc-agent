@@ -1,0 +1,11 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.100.0
+    volumes:
+      - ./litellm.config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY}
+    ports:
+      - "4000:4000"
